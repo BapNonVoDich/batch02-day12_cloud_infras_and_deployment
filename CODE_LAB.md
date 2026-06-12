@@ -927,4 +927,10 @@ A: Railway: `railway scale <replicas>`. Render: Dashboard → Settings → Insta
 
 ---
 
+## Bonus Point Exercise
+1. Tạo 1 CICD pipeline bằng github actions để deploy app của bạn lên Railway / Render
+-  CI: có stage verify code lint, unitest coverage
+-  CD
+-  Demo để cộng điểm
+
 **Happy Deploying! **
