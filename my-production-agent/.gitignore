@@ -1,0 +1,9 @@
+.env
+mock-data/*
+mock-data/
+logs/
+__pycache__/
+*.log
+.DS_Store
+models/
+.venv

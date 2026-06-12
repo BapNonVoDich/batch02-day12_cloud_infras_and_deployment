@@ -1,0 +1,39 @@
+version: '3.8'
+services:
+  agent:
+    build: .
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - AGENT_API_KEY=secret
+      - PORT=8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+  
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - agent
+
+  frontend:
+    build: 
+      context: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - agent
+
+volumes:
+  redis_data:

@@ -1,0 +1,15 @@
+__pycache__
+*.pyc
+.env
+.venv
+venv/
+frontend/
+logs/
+report/
+tests/
+EVAL/
+EVALUATION.md
+Formulas.md
+INSTRUCTOR_GUIDE.md
+Onboard.md
+SCORING.md

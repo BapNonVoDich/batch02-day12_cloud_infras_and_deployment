@@ -1,109 +1,77 @@
-# Day 12 — Deployment: Đưa Agent Lên Cloud
+# Báo Cáo Hoàn Thành: Part 6 - Production-ready AI Nutrition Agent
 
-> **AICB-P1 · VinUniversity 2026**  
-> Repository thực hành đi kèm bài giảng Day 12.  
-> Mỗi phần có ví dụ **cơ bản** (hiểu concept) và **chuyên sâu** (production-ready).
+Đây là repository báo cáo kết quả thực hành bài **Lab 6: Localhost vs. Production (12-Factor App & Containerization)** của môn học Cloud Infrastructure & Deployment.
 
----
+## Mục tiêu
+Chuyển đổi một ứng dụng AI Nutrition Agent (hoạt động ở Localhost, lưu state file JSON, thiết kế Monolithic) thành một **hệ thống đạt chuẩn Production** theo nguyên lý **12-Factor App**.
 
-## Cấu Trúc Project
+## Các tiêu chuẩn Production đã triển khai thành công:
 
+### 1. Stateless Architecture (Redis)
+- **Vấn đề cũ**: Ứng dụng `old-pj` lưu trữ thông tin User và Chat History trực tiếp vào file JSON trên ổ cứng (`MockUser.json`, `ChatHistory.json`), gây ra lỗi mất tính đồng nhất khi scale ra nhiều container, khó load balancing.
+- **Giải pháp**: Xây dựng lại `tools/db_utils.py` để kết nối và lưu trữ toàn bộ Application State vào **Redis**. Ứng dụng giờ đây trở thành Stateless hoàn toàn và có thể scale ra nhiều Replica.
+
+### 2. Configuration & Secrets Management
+- Thay thế hoàn toàn cách đọc `os.getenv` thủ công bằng module `pydantic-settings` tại `src/config.py`.
+- Tập trung quản lý toàn bộ cấu hình: `PORT`, `REDIS_URL`, `GEMINI_API_KEY`, `AGENT_API_KEY`.
+
+### 3. API Security & Reliability
+- **Xác thực API Key**: Thêm cơ chế Auth Header (`X-API-Key`) bảo mật toàn bộ các Endpoint nhạy cảm.
+- **Rate Limiting**: Giới hạn tấn công DDoS và Spam bằng cách lưu bộ đếm số request trên Redis (Giới hạn 10 request/phút).
+- **Cost Guard**: Tính toán chi phí gọi LLM Gemini và block request nếu người dùng xài quá ngân sách trong tháng (Tracking qua Redis).
+- Triển khai thông qua `FastAPI Depends()`.
+
+### 4. Health Check & Observability
+- Thêm Endpoint `/health` (Tính toán Uptime, báo hiệu Container sống/chết).
+- Thêm Endpoint `/ready` (Ping thử kết nối Redis để đảm bảo ứng dụng đã có khả năng nhận request từ Load Balancer).
+- Thay thế Print thông thường bằng hệ thống JSON Logging chuẩn hóa (xuất theo định dạng `{"time": "...", "level": "INFO", "msg": "..."}`).
+
+### 5. Graceful Shutdown
+- Tích hợp hàm bắt tín hiệu kết thúc từ Hệ điều hành/Docker (`signal.SIGTERM`).
+- Tích hợp Context Manager (`lifespan`) của FastAPI để đóng an toàn các kết nối Data (sleep 1s để hoàn thành nốt request đang dang dở) trước khi thoát chương trình.
+
+### 6. Containerization (Multi-stage Build & Docker Compose)
+- Viết `Dockerfile` Multi-stage tách biệt hoàn toàn môi trường build (Cài đặt gcc, g++, build lib) và môi trường Runtime (Chỉ chứa bytecode). Giúp tối ưu hóa dung lượng image và bảo mật.
+- Đóng gói toàn bộ Stack thông qua `docker-compose.yml` gồm:
+  - **Nginx**: Cấu hình Reverse Proxy làm Load balancer.
+  - **Redis**: Database phân tán lưu trữ State.
+  - **Agent API**: Backend logic.
+  - **Frontend Vite**: Giao diện Web được build và serve trên Nginx port 3000.
+
+## Cấu trúc thư mục hiện tại (`my-production-agent`)
 ```
-day12_ha-tang-cloud_va_deployment/
-├── 01-localhost-vs-production/     # Section 1: Dev ≠ Production
-│   ├── develop/                      #   Agent "đúng kiểu localhost"
-│   └── production/                   #   12-Factor compliant agent
-│
-├── 02-docker/                      # Section 2: Containerization
-│   ├── develop/                      #   Dockerfile đơn giản
-│   └── production/                   #   Multi-stage + Docker Compose stack
-│
-├── 03-cloud-deployment/            # Section 3: Cloud Options
-│   ├── railway/                    #   Deploy Railway (< 5 phút)
-│   ├── render/                     #   Deploy Render + render.yaml
-│   └── production-cloud-run/         #   GCP Cloud Run + CI/CD
-│
-├── 04-api-gateway/                 # Section 4: Security
-│   ├── develop/                      #   API Key authentication
-│   └── production/                   #   JWT + Rate Limiting + Cost Guard
-│
-├── 05-scaling-reliability/         # Section 5: Scale & Reliability
-│   ├── develop/                      #   Health check + graceful shutdown
-│   └── production/                   #   Stateless + Redis + Nginx LB
-│
-├── 06-lab-complete/                # Lab 12: Production-ready agent
-│   └── (full project kết hợp tất cả)
-│
-└── utils/                          # Mock LLM dùng chung (không cần API key)
+my-production-agent/
+├── docker-compose.yml
+├── Dockerfile (Backend Multi-stage)
+├── nginx.conf (Nginx Reverse Proxy)
+├── .env.example
+├── requirements.txt
+├── src/
+│   ├── server.py (FastAPI, Middlewares, Routes)
+│   ├── config.py (Pydantic Settings)
+│   ├── auth.py (API Key Auth)
+│   ├── rate_limiter.py (Redis Counter)
+│   ├── cost_guard.py (Redis Budgeting)
+│   └── agent/ (ReAct Agent Logic)
+├── tools/
+│   └── db_utils.py (Redis Stateful Storage)
+└── frontend/
+    ├── Dockerfile (Frontend Multi-stage)
+    └── src/ (React + Vite)
 ```
 
----
+## Hướng dẫn chạy
 
-## 🚀 Bắt Đầu Nhanh
-
-**Muốn thử ngay?** → [QUICK_START.md](QUICK_START.md) (5 phút)
-
-**Muốn học kỹ?** → [CODE_LAB.md](CODE_LAB.md) (3-4 giờ)
-
-## Cách Học
-
-| Bước | Làm gì |
-|------|--------|
-| 0 | **[Khuyến nghị]** Đọc [QUICK_START.md](QUICK_START.md) để thử nhanh |
-| 1 | Đọc [CODE_LAB.md](CODE_LAB.md) để hiểu chi tiết |
-| 2 | Chạy ví dụ **basic** trước — hiểu concept |
-| 3 | So sánh với ví dụ **advanced** — thấy sự khác biệt |
-| 4 | Tự làm Lab 06 từ đầu trước khi xem solution |
-| 5 | Tham khảo [QUICK_REFERENCE.md](QUICK_REFERENCE.md) khi cần |
-| 6 | Xem [TROUBLESHOOTING.md](TROUBLESHOOTING.md) khi gặp lỗi |
-
----
-
-## Yêu Cầu
+Chỉ với 1 lệnh duy nhất để đưa toàn bộ cụm hệ thống lên Production:
 
 ```bash
-python 3.11+
-docker & docker compose
+cd my-production-agent
+docker compose up --build -d
 ```
 
-Mỗi folder có `requirements.txt` riêng. Không cần API key thật — các ví dụ dùng **mock LLM** để chạy offline.
+- **Frontend**: Truy cập [http://localhost:3000](http://localhost:3000)
+- **Nginx Backend Proxy**: [http://localhost/](http://localhost/)
+- **Health Check**: [http://localhost/health](http://localhost/health)
 
 ---
-
-## Sections
-
-| # | Folder | Concept chính |
-|---|--------|--------------|
-| 1 | `01-localhost-vs-production` | Dev/prod gap, 12-factor, secrets |
-| 2 | `02-docker` | Dockerfile, multi-stage, docker-compose |
-| 3 | `03-cloud-deployment` | Railway, Render, Cloud Run |
-| 4 | `04-api-gateway` | Auth, rate limiting, cost protection |
-| 5 | `05-scaling-reliability` | Health check, stateless, rolling deploy |
-| 6 | `06-lab-complete` | **Full production agent** |
-
----
-
-## 📚 Lab Materials
-
-Chúng tôi đã chuẩn bị đầy đủ tài liệu hướng dẫn:
-
-### Cho Sinh Viên
-
-| Tài liệu | Mô tả | Thời gian |
-|----------|-------|-----------|
-| **[CODE_LAB.md](CODE_LAB.md)** | Hướng dẫn lab chi tiết từng bước | 3-4 giờ |
-| **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** | Cheat sheet các lệnh và patterns | Tra cứu |
-| **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** | Giải quyết lỗi thường gặp | Khi cần |
-
-### Cho Giảng Viên
-
-| Tài liệu | Mô tả |
-|----------|-------|
-| **[INSTRUCTOR_GUIDE.md](INSTRUCTOR_GUIDE.md)** | Hướng dẫn chấm điểm và đánh giá |
-
-### Cách Sử Dụng
-
-1. **Trước lab:** Đọc [CODE_LAB.md](CODE_LAB.md) để hiểu tổng quan
-2. **Trong lab:** Làm theo từng Part, tham khảo [QUICK_REFERENCE.md](QUICK_REFERENCE.md)
-3. **Gặp lỗi:** Xem [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-4. **Sau lab:** Nộp Part 6 Final Project để chấm điểm
+*Báo cáo được tự động tạo và biên soạn trong môi trường Lab.*
